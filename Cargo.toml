@@ -1,0 +1,15 @@
+[package]
+name = "moodle-doc-converter"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1"
+base64 = "0.22"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+quick-xml = "0.37"
+zip = "2"
+
+[[bin]]
+name = "moodle-doc-converter"
+path = "src/main.rs"

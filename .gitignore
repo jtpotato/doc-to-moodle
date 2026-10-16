@@ -1,0 +1,9 @@
+# test artifacts.
+*.docx
+*.xml
+
+# rust build artifacts.
+target/
+
+# macos
+.DS_Store
