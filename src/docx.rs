@@ -12,14 +12,19 @@ use crate::gift::{Inline, Paragraph};
 /// Resolved embedded image data and its display dimensions.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Image {
+    /// Encoded image bytes, cropped when Word specifies a source rectangle.
     pub bytes: Vec<u8>,
+    /// Display width read from Word's drawing extent and converted to pixels.
     pub width_px: u32,
+    /// Display height read from Word's drawing extent and converted to pixels.
     pub height_px: u32,
 }
 
 /// The intermediate contents extracted from a DOCX package.
 pub struct Document {
+    /// Non-empty Word paragraphs in document order, with resolved image names.
     pub paragraphs: Vec<Paragraph>,
+    /// Image payloads keyed by the media filename referenced in the paragraphs.
     pub images: HashMap<String, Image>,
 }
 
@@ -50,6 +55,13 @@ impl Document {
     ///
     /// This includes Word paragraphs, run-level bold/italic state, image
     /// relationships, display dimensions, and Word crop rectangles.
+    ///
+    /// It first reads the document XML and relationship table, then parses
+    /// paragraph/run structure and records unresolved drawing identifiers.
+    /// Each drawing is subsequently matched to its relationship, loaded from
+    /// the archive, cropped if needed, and replaced with its media filename.
+    /// Empty paragraphs are discarded after resolution. Missing package
+    /// entries, relationships, or drawing metadata are returned as errors.
     pub fn read<R: Read + Seek>(input: R) -> Result<Self> {
         let mut archive = ZipArchive::new(input).context("invalid DOCX zip archive")?;
         let xml = read_entry(&mut archive, "word/document.xml")?;
@@ -95,10 +107,20 @@ impl Document {
     }
 }
 
+/// Converts English Metric Units to 96-DPI pixels, rounded and clamped to one.
+///
+/// Word stores drawing extents in EMUs; dividing by 9,525 gives pixels at
+/// 96 DPI. Rounding preserves the nearest whole display pixel, and the clamp
+/// avoids emitting zero-sized image dimensions for missing or tiny extents.
 fn emu_to_px(emu: u64) -> u32 {
     ((emu as f64 / 9_525.0).round() as u32).max(1)
 }
 
+/// Reads one named file from the DOCX ZIP archive into memory.
+///
+/// Opening the member is annotated with its archive path so callers can tell
+/// which required DOCX part was absent. The complete entry is then copied to
+/// a byte vector for XML parsing or image decoding.
 fn read_entry<R: Read + Seek>(archive: &mut ZipArchive<R>, name: &str) -> Result<Vec<u8>> {
     let mut entry = archive
         .by_name(name)
@@ -108,6 +130,12 @@ fn read_entry<R: Read + Seek>(archive: &mut ZipArchive<R>, name: &str) -> Result
     Ok(bytes)
 }
 
+/// Builds a relationship-ID to media-target map from `document.xml.rels`.
+///
+/// It scans both self-closing and paired `Relationship` elements, reads their
+/// `Id` and `Target` attributes, and retains only targets under `media/`.
+/// Non-media relationships and incomplete entries are ignored because this
+/// converter only resolves embedded document images.
 fn read_relationships<R: Read + Seek>(
     archive: &mut ZipArchive<R>,
 ) -> Result<HashMap<String, String>> {
@@ -145,6 +173,15 @@ fn read_relationships<R: Read + Seek>(
     Ok(relationships)
 }
 
+/// Parses Word document XML into paragraphs and unresolved drawing metadata.
+///
+/// XML events drive a small state machine: paragraph start/end creates and
+/// commits paragraph values; run start resets style; empty bold/italic tags
+/// update that run's style; text and tabs become styled inlines. Each drawing
+/// gets a temporary key, which is inserted at its inline position while its
+/// relationship ID, extent, and crop rectangle are collected from nested
+/// drawing events. This split lets [`Document::read`] resolve ZIP media after
+/// the XML walk. An unclosed paragraph is rejected as malformed input.
 fn parse_document(data: &[u8]) -> Result<(Vec<Paragraph>, HashMap<String, RawImage>)> {
     let mut reader = Reader::from_reader(Cursor::new(data));
     let mut buffer = Vec::new();
@@ -250,6 +287,12 @@ fn parse_document(data: &[u8]) -> Result<(Vec<Paragraph>, HashMap<String, RawIma
     Ok((paragraphs, raw_images))
 }
 
+/// Applies a Word bold or italic property to the current run style.
+///
+/// Only `w:b` and `w:i` property elements are relevant. Their `w:val` value
+/// disables the style for `0` or `false`; an absent value means enabled, in
+/// line with Word's on/off property convention. Other element names leave the
+/// style unchanged.
 fn update_style(
     style: &mut RunStyle,
     name: &[u8],
@@ -270,6 +313,11 @@ fn update_style(
     }
 }
 
+/// Reads a numeric XML attribute as `u64`, using zero for missing or invalid values.
+///
+/// Attribute names are matched byte-for-byte. The first matching value is
+/// parsed; malformed numeric data falls back to zero so absent extent values
+/// can later be handled by dimension conversion rather than panicking.
 fn attribute_u64(event: &quick_xml::events::BytesStart<'_>, key: &[u8]) -> u64 {
     event
         .attributes()
@@ -284,10 +332,23 @@ fn attribute_u64(event: &quick_xml::events::BytesStart<'_>, key: &[u8]) -> u64 {
         .unwrap_or(0)
 }
 
+/// Reads a bounded Word percentage attribute used for image cropping.
+///
+/// Word crop values are expressed in hundred-thousandths. The shared numeric
+/// reader handles missing and malformed values; capping at 100,000 prevents
+/// crop fractions above 100% from overflowing or extending past the source.
 fn attribute_u32(event: &quick_xml::events::BytesStart<'_>, key: &[u8]) -> u32 {
     attribute_u64(event, key).min(100_000) as u32
 }
 
+/// Applies Word's normalized crop margins to image bytes and re-encodes them.
+///
+/// A zero crop returns the original bytes without decoding. Otherwise the
+/// format is detected and pixels are loaded, each margin is converted from
+/// hundred-thousandths to pixels, and the remaining rectangle is cropped
+/// (with each dimension kept at least one pixel). JPEG and PNG retain their
+/// original format on output; other formats or invalid image data return an
+/// error.
 fn crop_image(bytes: &[u8], crop: Crop) -> Result<Vec<u8>> {
     if crop.left == 0 && crop.top == 0 && crop.right == 0 && crop.bottom == 0 {
         return Ok(bytes.to_vec());

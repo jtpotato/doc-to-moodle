@@ -7,6 +7,10 @@ use std::{fs, path::Path};
 /// ANSI escapes are used for bold and italics when stdout is a terminal.
 /// The returned string deliberately keeps the escapes so callers can choose
 /// whether to print them or remove them.
+///
+/// The file is read as bytes with path context on I/O errors, then passed to
+/// [`render_xml`] for parsing. File payload text is intentionally suppressed
+/// by the XML renderer so image base64 does not flood the transcript.
 pub fn render_file(path: impl AsRef<Path>) -> Result<String> {
     let data =
         fs::read(path.as_ref()).with_context(|| format!("reading {}", path.as_ref().display()))?;
@@ -17,6 +21,13 @@ pub fn render_file(path: impl AsRef<Path>) -> Result<String> {
 ///
 /// The parser intentionally ignores file payloads and represents embedded
 /// images as `[image]` rather than printing base64 data.
+///
+/// A streaming XML reader tracks whether it is inside a question name, prompt,
+/// answer, or image file. It numbers questions and answers as those elements
+/// begin, appends only text in the relevant regions, and delegates HTML text
+/// fragments for inline formatting. `strong`/`b` and `i`/`em` tags produce
+/// ANSI escapes, `<br>` adds a newline, and `<img>` becomes `[image]`. The
+/// result is trimmed and terminated with exactly one newline.
 pub fn render_xml(data: &[u8]) -> Result<String> {
     let mut reader = Reader::from_reader(data);
     let mut buffer = Vec::new();
@@ -105,6 +116,12 @@ pub fn render_xml(data: &[u8]) -> Result<String> {
     Ok(output.trim().to_string() + "\n")
 }
 
+/// Appends one HTML fragment from a Moodle text node to the transcript.
+///
+/// A second XML reader handles the markup embedded inside Moodle's XML text
+/// element. It preserves text and CDATA, maps bold and italic tags to ANSI
+/// styling, and maps empty break and image tags to transcript equivalents.
+/// Unsupported markup is skipped while its text children remain visible.
 fn append_html_fragment(value: &str, output: &mut String) -> Result<()> {
     let mut reader = Reader::from_str(value);
     let mut buffer = Vec::new();
