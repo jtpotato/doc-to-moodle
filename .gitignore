@@ -5,5 +5,11 @@
 # rust build artifacts.
 target/
 
+# next.js build artifacts.
+web/node_modules/
+web/.next/
+web/out/
+web/public/wasm/
+
 # macos
 .DS_Store

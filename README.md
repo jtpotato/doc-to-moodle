@@ -17,6 +17,29 @@ Moodle instance.
 
 ## Quick start
 
+### Browser app
+
+The `web/` app is a static Next.js site. DOCX parsing, image processing, preview
+generation, and Moodle XML output all run locally in a Web Worker using the
+Rust converter compiled to WebAssembly. The selected document is never sent to
+a server. The site can be hosted on any static file host.
+
+Requirements: Node.js/npm, Rust/Cargo, the `wasm32-unknown-unknown` Rust target,
+and the `wasm-bindgen` CLI matching the crate version (`0.2.129`).
+
+```sh
+cd web
+npm install
+npm run dev       # builds the WASM module, then starts Next.js
+npm run build     # generates a static site in web/out/
+npm start         # serves the static build locally on port 3000
+```
+
+For hosting, publish the contents of `web/out/`. The generated files in
+`web/public/wasm/` are build artifacts and are created by `npm run build:wasm`.
+
+### Command line
+
 Convert a manuscript:
 
 ```sh

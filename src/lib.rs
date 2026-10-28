@@ -18,7 +18,8 @@ mod moodle;
 mod text;
 
 use anyhow::Result;
-use std::io::{Read, Seek};
+use std::io::{Cursor, Read, Seek};
+use wasm_bindgen::prelude::*;
 
 pub use gift::{parse_questions, Answer, Inline, Paragraph, Question};
 pub use text::{render_file as render_moodle_text_file, render_xml as render_moodle_text};
@@ -52,4 +53,56 @@ pub fn convert_docx<R: Read + Seek>(input: R) -> Result<String> {
     let document = docx::Document::read(input)?;
     let questions = parse_questions(document.paragraphs)?;
     Ok(moodle::render_questions(&questions, &document.images))
+}
+
+/// Converts a DOCX in the browser and returns both a structured preview and
+/// its Moodle XML. The input and all generated content remain in memory.
+#[wasm_bindgen]
+pub fn convert_docx_preview(bytes: &[u8]) -> std::result::Result<String, JsValue> {
+    let document = docx::Document::read(Cursor::new(bytes))
+        .map_err(|error| JsValue::from_str(&format!("Could not read this DOCX: {error:#}")))?;
+    let questions = parse_questions(document.paragraphs)
+        .map_err(|error| JsValue::from_str(&format!("Could not parse questions: {error:#}")))?;
+    let xml = moodle::render_questions(&questions, &document.images);
+    let image_data: std::collections::HashMap<_, _> = document
+        .images
+        .iter()
+        .map(|(name, image)| {
+            let mime = if image.bytes.starts_with(&[0x89, b'P', b'N', b'G']) {
+                "image/png"
+            } else {
+                "image/jpeg"
+            };
+            (
+                name.clone(),
+                format!(
+                    "data:{mime};base64,{}",
+                    base64::Engine::encode(
+                        &base64::engine::general_purpose::STANDARD,
+                        &image.bytes
+                    )
+                ),
+            )
+        })
+        .collect();
+    let inline_json = |inline: &Inline| match inline {
+        Inline::Text {
+            value,
+            bold,
+            italic,
+        } => serde_json::json!({"type":"text", "value":value, "bold":bold, "italic":italic}),
+        Inline::Image(name) => {
+            serde_json::json!({"type":"image", "name":name, "src":image_data.get(name)})
+        }
+    };
+    let preview: Vec<_> = questions.iter().map(|question| serde_json::json!({
+        "name": question.name,
+        "prompt": question.prompt.iter().map(|paragraph| paragraph.inlines.iter().map(inline_json).collect::<Vec<_>>()).collect::<Vec<_>>(),
+        "answers": question.answers.iter().map(|answer| serde_json::json!({
+            "correct": answer.correct,
+            "content": answer.inlines.iter().map(inline_json).collect::<Vec<_>>(),
+        })).collect::<Vec<_>>(),
+    })).collect();
+    serde_json::to_string(&serde_json::json!({"questions":preview,"xml":xml}))
+        .map_err(|error| JsValue::from_str(&format!("Could not prepare preview: {error}")))
 }
