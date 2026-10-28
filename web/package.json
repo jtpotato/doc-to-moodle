@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "npm run build:wasm && next dev --webpack",
+    "dev": "bun run build:wasm && next dev --webpack",
     "build:wasm": "bash scripts/build-wasm.sh",
-    "build": "npm run build:wasm && next build --webpack",
+    "build": "bun run build:wasm && next build --webpack",
     "start": "node scripts/serve.mjs"
   },
   "dependencies": {
