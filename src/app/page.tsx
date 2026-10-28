@@ -16,16 +16,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
+import type { ConversionResult, Inline } from "@/lib/converter";
 
-type Inline =
-  | { type: "text"; value: string; bold: boolean; italic: boolean }
-  | { type: "image"; name: string; src?: string };
-type Question = {
-  name: string;
-  prompt: Inline[][];
-  answers: { correct: boolean; content: Inline[] }[];
-};
-type Result = { questions: Question[]; xml: string };
+type Result = ConversionResult;
 
 function InlineContent({ items }: { items: Inline[] }) {
   return (

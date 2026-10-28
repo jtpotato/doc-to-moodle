@@ -1,13 +1,12 @@
 {
-  "name": "moodle-doc-converter-web",
+  "name": "moodle-doc-converter",
   "version": "0.1.0",
   "packageManager": "bun@1.4.4",
   "private": true,
   "scripts": {
-    "dev": "bun run build:wasm && bun run --bun next dev --webpack",
-    "build:wasm": "bash scripts/build-wasm.sh",
-    "build": "bun run build:wasm && bun run --bun next build --webpack",
-    "start": "bun run --bun scripts/serve.mjs"
+    "dev": "bun run --bun next dev --webpack",
+    "build": "bun run --bun next build --webpack",
+    "start": "bun run --bun next start"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",
@@ -15,6 +14,8 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cn": "^0.5.0",
+    "fast-xml-parser": "^5.11.2",
+    "fflate": "^0.8.3",
     "lucide-react": "^1.62.0",
     "next": "16.4.3",
     "postcss": "^8.5.32",
