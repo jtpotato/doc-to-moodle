@@ -1,10 +1,11 @@
 import { strFromU8, unzipSync } from "fflate";
 import { XMLParser, XMLValidator } from "fast-xml-parser";
+import { bytesToBase64, imageBytesToDataUrl } from "@/lib/image-data";
 
 export type TextInline = { type: "text"; value: string; bold: boolean; italic: boolean };
 export type ImageInline = { type: "image"; name: string; src?: string };
 export type Inline = TextInline | ImageInline;
-export type Answer = { correct: boolean; content: Inline[] };
+export type Answer = { correct: boolean; content: Inline[]; fraction?: number };
 export type Question = { name: string; prompt: Inline[][]; answers: Answer[] };
 export type ConversionResult = { questions: Question[]; xml: string };
 
@@ -61,7 +62,7 @@ export async function convertDocx(input: ArrayBuffer): Promise<ConversionResult>
           bytes,
           widthPx: emuToPx(raw.widthEmu),
           heightPx: emuToPx(raw.heightEmu),
-          dataUrl: `data:${imageMime(bytes)},base64,${bytesToBase64(bytes)}`,
+          dataUrl: imageBytesToDataUrl(bytes, imageMime(bytes)),
         });
       }
       paragraph.inlines[index] = { type: "image", name: filename, src: images.get(filename)!.dataUrl };
@@ -230,7 +231,7 @@ function parseQuestions(paragraphs: Paragraph[]): Question[] {
       continue;
     }
 
-    const explicitlyMarked = text.trim().endsWith("(*)") || text.trim().startsWith("~%");
+    const explicitlyMarked = text.trim().endsWith("(*)") || /^[=~]/.test(text.trim());
     const previousPrompt = current.prompt.at(-1);
     const previousText = previousPrompt ? previousPrompt.filter((inline): inline is TextInline => inline.type === "text").map(inline => inline.value).join("") : "";
     const promptFinished = previousText.trim().endsWith("?") || previousText.trim().endsWith("answers)");
@@ -261,29 +262,50 @@ function questionMarker(value: string): string | undefined {
 
 function parseAnswer(paragraph: Paragraph): Answer | undefined {
   const text = plainText(paragraph);
-  const correct = text.trim().endsWith("(*)");
+  const trimmed = text.trimStart();
+  const giftMarker = trimmed.match(/^([=~])(?:%(-?\d+(?:\.\d+)?)%)?/);
+  const legacyCorrect = text.trim().endsWith("(*)");
+  const fraction = giftMarker
+    ? (giftMarker[2] === undefined ? (giftMarker[1] === "=" ? 100 : 0) : Number(giftMarker[2]))
+    : undefined;
+  const correct = giftMarker ? (fraction ?? 0) > 0 : legacyCorrect;
   const content = paragraph.inlines.map(inline => ({ ...inline }));
-  if (correct) {
+  if (giftMarker) {
+    removeTextPrefix(content, giftMarker[0]);
+  } else if (legacyCorrect) {
     const last = content.at(-1);
     if (last?.type === "text") {
       const index = last.value.lastIndexOf("(*)");
       if (index >= 0) last.value = last.value.slice(0, index);
     }
   }
-  if (text.trimStart().startsWith("~%0%")) {
-    const firstText = content.find(inline => inline.type === "text");
-    if (firstText?.type === "text") {
-      const index = firstText.value.indexOf("~%0%");
-      if (index >= 0) firstText.value = firstText.value.slice(0, index) + firstText.value.slice(index + 4);
+  return content.length ? { correct, content, fraction } : undefined;
+}
+
+function removeTextPrefix(content: Inline[], prefix: string): void {
+  const firstText = content.find(inline => inline.type === "text");
+  if (firstText?.type === "text") {
+    const leadingWhitespace = firstText.value.match(/^\s*/)?.[0] ?? "";
+    const markerIndex = leadingWhitespace.length;
+    if (firstText.value.startsWith(prefix, markerIndex)) {
+      firstText.value = firstText.value.slice(0, markerIndex) + firstText.value.slice(markerIndex + prefix.length);
     }
   }
-  return content.length ? { correct, content } : undefined;
+}
+
+export function answerFractions(answers: Answer[]): number[] {
+  const hasGiftWeights = answers.some(answer => answer.fraction !== undefined);
+  if (hasGiftWeights) return answers.map(answer => answer.fraction ?? 0);
+  const correctCount = answers.filter(answer => answer.correct).length;
+  const inferred = correctCount === 0 ? 0 : 100 / correctCount;
+  return answers.map(answer => answer.correct ? inferred : 0);
 }
 
 function renderMoodleXml(questions: Question[], images: Map<string, EmbeddedImage>): string {
   let output = `<?xml version="1.0" encoding="UTF-8"?>\n<quiz>\n`;
   for (const question of questions) {
-    const correctCount = question.answers.filter(answer => answer.correct).length;
+    const fractions = answerFractions(question.answers);
+    const correctCount = fractions.filter(fraction => fraction > 0).length;
     output += `  <question type="multichoice">\n`;
     output += `    <name><text>${xmlEscape(question.name)}</text></name>\n`;
     output += `    <questiontext format="html"><text><![CDATA[${question.prompt.map(paragraph => renderInlines(paragraph, images)).join("<br/>")}]]></text>`;
@@ -294,9 +316,8 @@ function renderMoodleXml(questions: Question[], images: Map<string, EmbeddedImag
     output += `</questiontext>\n`;
     output += `    <single>${correctCount === 1 ? "true" : "false"}</single>\n`;
     output += `    <shuffleanswers>true</shuffleanswers>\n`;
-    const fraction = correctCount === 0 ? 0 : 100 / correctCount;
-    for (const answer of question.answers) {
-      output += `    <answer fraction="${answer.correct ? formatFraction(fraction) : "0"}"><text><![CDATA[${renderInlines(answer.content, images)}]]></text></answer>\n`;
+    for (const [index, answer] of question.answers.entries()) {
+      output += `    <answer fraction="${formatFraction(fractions[index])}"><text><![CDATA[${renderInlines(answer.content, images)}]]></text></answer>\n`;
     }
     output += `  </question>\n`;
   }
@@ -373,14 +394,6 @@ function imageMime(bytes: Uint8Array): string {
   if (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) return "image/gif";
   if (bytes[0] === 0x42 && bytes[1] === 0x4d) return "image/bmp";
   return "application/octet-stream";
-}
-
-function bytesToBase64(bytes: Uint8Array): string {
-  let binary = "";
-  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
-    binary += String.fromCharCode(...bytes.subarray(offset, Math.min(offset + 0x8000, bytes.length)));
-  }
-  return btoa(binary);
 }
 
 function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {

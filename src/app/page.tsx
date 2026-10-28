@@ -16,35 +16,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
-import type { ConversionResult, Inline } from "@/lib/converter";
+import { InlineContent } from "@/components/inline-content";
+import { answerFractions, type ConversionResult } from "@/lib/converter";
 
 type Result = ConversionResult;
-
-function InlineContent({ items }: { items: Inline[] }) {
-  return (
-    <>
-      {items.map((item, i) =>
-        item.type === "image" ? (
-          item.src ? (
-            <img
-              className="my-3 max-h-72 max-w-full rounded-md border object-contain"
-              key={i}
-              src={item.src}
-              alt="Embedded document image"
-            />
-          ) : null
-        ) : (
-          <span
-            key={i}
-            className={`${item.bold ? "font-semibold" : ""} ${item.italic ? "italic" : ""}`}
-          >
-            {item.value}
-          </span>
-        ),
-      )}
-    </>
-  );
-}
 
 export default function Home() {
   const [file, setFile] = useState<File | null>(null);
@@ -256,7 +231,9 @@ export default function Home() {
             </Button>
           </div>
           <div className="space-y-4">
-            {result.questions.map((question, index) => (
+            {result.questions.map((question, index) => {
+              const fractions = answerFractions(question.answers);
+              return (
               <Card key={`${question.name}-${index}`}>
                 <CardHeader className="flex flex-row items-center gap-3 space-y-0 border-b">
                   {/* <Badge variant="outline" className="tabular-nums">
@@ -305,7 +282,7 @@ export default function Home() {
                               variant="outline"
                               className="border-emerald-300 text-emerald-800 dark:border-emerald-800 dark:text-emerald-300"
                             >
-                              Correct
+                              Correct · {Number.isInteger(fractions[i]) ? fractions[i] : fractions[i].toFixed(2)}%
                             </Badge>
                           )}
                         </li>
@@ -314,7 +291,8 @@ export default function Home() {
                   </div>
                 </CardContent>
               </Card>
-            ))}
+              );
+            })}
           </div>
           <div className="flex flex-col gap-3 border-t pt-5 sm:flex-row sm:items-center sm:justify-between">
             <Button onClick={download}>

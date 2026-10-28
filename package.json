@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "bun run --bun next dev --webpack",
     "build": "bun run --bun next build --webpack",
-    "start": "bun run --bun next start"
+    "start": "bun run --bun next start",
+    "test": "bun test"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",

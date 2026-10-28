@@ -33,8 +33,11 @@ build. The repository pins Bun in `vercel.json`.
   `::question-id::`, and the legacy `2026_D..._Q...` form.
 - `[Answers]` starts the answer choices. Without it, the converter uses the
   question-mark and answer-marker heuristic.
-- Put each answer in its own paragraph. Append `(*)` to every correct answer.
-  The legacy `~%0%` prefix is stripped from an answer.
+- Put each answer in its own paragraph. Moodle GIFT answer markers are supported:
+  `=` for a fully correct answer, `~` for an incorrect answer, and `~%50%` (or
+  another percentage) for a partially correct answer. Percentages are preserved
+  in the preview and Moodle XML. The `(*)` marker remains supported; when used
+  without GIFT weights, its correct answers share 100% equally.
 - Bold and italic Word runs, tabs, embedded JPEG/PNG images, display dimensions,
   and Word image cropping are preserved.
 - At least one question marker and one answer per question are required.
