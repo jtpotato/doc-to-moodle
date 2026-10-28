@@ -1,12 +1,13 @@
 {
   "name": "moodle-doc-converter-web",
   "version": "0.1.0",
+  "packageManager": "bun@1.4.4",
   "private": true,
   "scripts": {
-    "dev": "bun run build:wasm && next dev --webpack",
+    "dev": "bun run build:wasm && bun run --bun next dev --webpack",
     "build:wasm": "bash scripts/build-wasm.sh",
-    "build": "bun run build:wasm && next build --webpack",
-    "start": "node scripts/serve.mjs"
+    "build": "bun run build:wasm && bun run --bun next build --webpack",
+    "start": "bun run --bun scripts/serve.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",
