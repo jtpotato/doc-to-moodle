@@ -27,76 +27,19 @@ The output path is overwritten if it already exists. Errors are reported with
 the operation that failed, such as opening the input, reading the DOCX
 package, converting it, or writing the XML.
 
-Print a readable transcript of an existing Moodle XML file:
+Build the project:
 
 ```sh
-cargo run --release -- text output.xml
-```
-
-The `text` subcommand is primarily for machines but also human readable. It prints questions and answers with appropriate formatting for a terminal.
-
-Build and test the project:
-
-```sh
-cargo test
 cargo build --release
 ```
 
 ## Authoring format
 
-### Recommended explicit format
-
-Put each question in its own section. A section begins with a marker, followed
-by one or more prompt paragraphs, the literal `[Answers]` token, and one
-answer per paragraph:
-
-```text
-[MCQ id=climate-1]
-Which process removes carbon dioxide from the atmosphere?
-The question may include several paragraphs and images before [Answers].
-[Answers]
-Photosynthesis (*)
-Combustion
-Evaporation
-_
-```
-
-`id=` is optional. `[MCQ climate-1]` is equivalent to
-`[MCQ id=climate-1]`. The marker's ID becomes the Moodle question name.
-
-### Accepted question markers
-
-The parser recognizes:
-
-- `[MCQ id=climate-1]`
-- `[MCQ climate-1]`
-- GIFT-like `::question-id::`
-
-Marker matching is applied to the trimmed paragraph text. A paragraph before
-the first marker is ignored. A manuscript must contain at least one marker.
-
-### Prompt and answer rules
-
-- `[Answers]` is the unambiguous boundary between the prompt and choices and
-  is strongly recommended for every new manuscript.
-- Each answer must be its own paragraph.
-- Append `(*)` to every correct answer. The marker is removed from the
-  exported answer text.
-- Answers without `(*)` receive zero credit.
-- `~%0%` may be placed at the start of an answer to document an explicit
-  zero-credit GIFT-style option. The token is removed from the exported text.
-- A paragraph containing only `_` is ignored, as are empty paragraphs.
-- Avoid starting an answer with `[MCQ` or `::`; those strings are question
-  markers and begin a new question.
-
-When `[Answers]` is absent, the legacy heuristic is used. Paragraphs remain
-part of the prompt until the most recent prompt paragraph ends in `?` or
-`answers)`, unless a paragraph looks like an answer (for example, it ends in
-`(*)`). Images also keep a paragraph in the prompt. This compatibility mode
-is less predictable than `[Answers]` and should not be used for new documents.
-
-At least one answer is required for each question. A question with no answers,
-or a document with no recognized markers, is rejected with an error.
+Follow [Format Guide.md](Format%20Guide.md) for question markers, answer
+formatting, and scoring. Each question uses a `::...::` marker followed by its
+prompt, an `[Answers]` paragraph, and one answer per paragraph. Questions and
+answers are read in document order. A question without answers, or a document
+without question markers, is rejected.
 
 ### Formatting and images in Word
 
@@ -171,7 +114,7 @@ rendering without constructing a DOCX archive.
   mark fractions.
 - `src/text.rs`: XML transcript rendering and ANSI formatting for diagnostics.
 - `tests/converter.rs`: end-to-end conversion plus focused parser, formatting,
-  marks, and transcript tests.
+  and marks tests.
 
 ## Limitations and compatibility notes
 

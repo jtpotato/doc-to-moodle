@@ -350,7 +350,8 @@ fn attribute_u32(event: &quick_xml::events::BytesStart<'_>, key: &[u8]) -> u32 {
 /// original format on output; other formats or invalid image data return an
 /// error.
 fn crop_image(bytes: &[u8], crop: Crop) -> Result<Vec<u8>> {
-    if crop.left == 0 && crop.top == 0 && crop.right == 0 && crop.bottom == 0 {
+    let is_uncropped = crop.left == 0 && crop.top == 0 && crop.right == 0 && crop.bottom == 0;
+    if is_uncropped {
         return Ok(bytes.to_vec());
     }
 

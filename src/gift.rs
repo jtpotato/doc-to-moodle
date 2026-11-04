@@ -75,6 +75,16 @@ pub struct Answer {
     pub correct: bool,
 }
 
+/// A question type, either multi-choice or drop-down.
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum QuestionType {
+    /// A multiple-choice question with radio buttons or checkboxes.
+    MultiChoice,
+    /// A drop-down question with a single correct choice.
+    DropDown,
+}
+
 /// A parsed multiple-choice question before Moodle XML rendering.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Question {
@@ -84,18 +94,15 @@ pub struct Question {
     pub prompt: Vec<Paragraph>,
     /// Candidate answers in source order.
     pub answers: Vec<Answer>,
+    /// The type of the question.
+    pub question_type: QuestionType,
 }
 
 /// Parses marker-delimited paragraphs into validated questions.
 ///
-/// The explicit `[Answers]` token takes precedence over the legacy
-/// question-sentence heuristic.
-///
 /// Each recognized marker closes the previous question and starts a fresh
-/// one. Before `[Answers]`, paragraphs are treated as prompt content until
-/// the last prompt looks complete (ends in `?` or `answers)`) or a paragraph
-/// carries an answer marker; images keep otherwise ambiguous paragraphs in
-/// the prompt. After `[Answers]`, non-empty paragraphs are parsed as choices.
+/// one. Paragraphs before `[Answers]` are prompt content; paragraphs after it
+/// are choices.
 /// Empty paragraphs and `_` separator paragraphs are skipped. A marker before
 /// any question is ignored, but a document with no recognized markers and a
 /// question without any choices returns an error.
@@ -110,6 +117,7 @@ pub fn parse_questions(paragraphs: Vec<Paragraph>) -> Result<Vec<Question>> {
                 name,
                 prompt: Vec::new(),
                 answers: Vec::new(),
+                question_type: QuestionType::MultiChoice,
             });
             answers_started = false;
             continue;
@@ -131,31 +139,11 @@ pub fn parse_questions(paragraphs: Vec<Paragraph>) -> Result<Vec<Question>> {
             }
             continue;
         }
-        let explicitly_marked = text.trim().ends_with("(*)") || text.trim().starts_with("~%");
-        let prompt_finished = question
-            .prompt
-            .last()
-            .map(|p| {
-                let text = p.plain_text();
-                text.trim().ends_with('?') || text.trim().ends_with("answers)")
-            })
-            .unwrap_or(false);
-        let contains_image = paragraph
-            .inlines
-            .iter()
-            .any(|inline| matches!(inline, Inline::Image(_)));
-        if question.answers.is_empty() && !explicitly_marked && (!prompt_finished || contains_image)
-        {
-            question.prompt.push(paragraph);
-        } else if let Some(answer) = parse_answer(&paragraph) {
-            question.answers.push(answer);
-        } else if question.answers.is_empty() {
-            question.prompt.push(paragraph);
-        }
+        question.prompt.push(paragraph);
     }
     finish_question(&mut questions, current)?;
     if questions.is_empty() {
-        bail!("no question markers found; add [MCQ id=...] or ::id:: markers");
+        bail!("no question markers found; add ::id:: markers");
     }
     Ok(questions)
 }
@@ -176,23 +164,10 @@ fn finish_question(questions: &mut Vec<Question>, question: Option<Question>) ->
     Ok(())
 }
 
-/// Recognizes a supported question marker and returns its trimmed identifier.
-///
-/// The bracket form accepts `[MCQ ...]` and removes an optional leading
-/// `id=`. A legacy `2026_D..._Q...` identifier is also accepted, followed by
-/// the GIFT form `::identifier::`. Unrecognized text and empty GIFT identifiers
-/// return `None`.
+/// Recognizes a question marker and returns its trimmed identifier.
+/// Trims ``::id::`` to `id`.
 fn question_marker(text: &str) -> Option<String> {
     let text = text.trim();
-    if let Some(id) = text
-        .strip_prefix("[MCQ")
-        .and_then(|value| value.strip_suffix(']'))
-    {
-        return Some(id.trim().trim_start_matches("id=").trim().to_string());
-    }
-    if text.starts_with("2026_D") && text.contains("_Q") {
-        return Some(text.to_string());
-    }
     let id = text.strip_prefix("::")?.strip_suffix("::")?;
     (!id.trim().is_empty()).then(|| id.trim().to_string())
 }
@@ -200,18 +175,14 @@ fn question_marker(text: &str) -> Option<String> {
 /// Converts a paragraph to an answer when it contains visible inline content.
 ///
 /// A trailing `(*)` marks the answer correct and is removed from its final
-/// text inline. A leading `~%0%` GIFT token is removed but does not mark the
-/// answer correct. The remaining inline fragments, including styles and
-/// images, are preserved in source order.
+/// text inline. The remaining inline fragments, including styles and images,
+/// are preserved in source order.
 fn parse_answer(paragraph: &Paragraph) -> Option<Answer> {
     let text = paragraph.plain_text();
     let correct = text.trim().ends_with("(*)");
     let mut inlines = paragraph.inlines.clone();
     if correct {
         trim_text_suffix(&mut inlines, "(*)");
-    }
-    if text.trim_start().starts_with("~%0%") {
-        trim_text_prefix(&mut inlines, "~%0%");
     }
     (!inlines.is_empty()).then_some(Answer { inlines, correct })
 }
@@ -225,22 +196,6 @@ fn trim_text_suffix(inlines: &mut [Inline], suffix: &str) {
     if let Some(Inline::Text { value, .. }) = inlines.last_mut() {
         if let Some(index) = value.rfind(suffix) {
             value.truncate(index);
-        }
-    }
-}
-
-/// Removes the first occurrence of a marker from the first text inline.
-///
-/// Earlier image inlines are skipped, allowing a prefix token to be removed
-/// from the first textual fragment while retaining all other inline content.
-/// If no text fragment contains the prefix, nothing changes.
-fn trim_text_prefix(inlines: &mut [Inline], prefix: &str) {
-    if let Some(Inline::Text { value, .. }) = inlines
-        .iter_mut()
-        .find(|inline| matches!(inline, Inline::Text { .. }))
-    {
-        if let Some(index) = value.find(prefix) {
-            value.replace_range(index..index + prefix.len(), "");
         }
     }
 }

@@ -10,19 +10,8 @@ use std::{env, fs::File};
 /// context, and malformed argument counts return a usage error.
 fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
-    if args.get(1).map(String::as_str) == Some("text") {
-        if args.len() != 3 {
-            bail!("usage: {} text INPUT.xml", args[0]);
-        }
-        print!("{}", render_moodle_text_file(&args[2])?);
-        return Ok(());
-    }
-    if args.len() != 3 {
-        bail!(
-            "usage: {} INPUT.docx OUTPUT.xml\n       {} text INPUT.xml",
-            args[0],
-            args[0]
-        );
+    if args.len() != 2 {
+        bail!("usage: INPUT.docx OUTPUT.xml");
     }
 
     let input = File::open(&args[1]).with_context(|| format!("opening {}", args[1]))?;

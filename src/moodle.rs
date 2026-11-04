@@ -9,7 +9,7 @@ use std::collections::HashMap;
 /// converted to a grade fraction, and image bytes are included as base64 files
 /// when referenced. The returned string always contains the XML declaration
 /// and closing quiz tag.
-pub fn render_questions(questions: &[Question], images: &HashMap<String, Image>) -> String {
+pub fn questions_to_xml(questions: &[Question], images: &HashMap<String, Image>) -> String {
     let mut output = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<quiz>\n");
     for question in questions {
         render_question(&mut output, question, images);

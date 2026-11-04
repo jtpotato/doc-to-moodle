@@ -34,7 +34,7 @@ pub use text::{render_file as render_moodle_text_file, render_xml as render_mood
 /// rendering rules, while image references have no dimensions or associated
 /// base64 file payloads.
 pub fn moodle_xml_for_test(questions: &[Question]) -> String {
-    moodle::render_questions(questions, &std::collections::HashMap::new())
+    moodle::questions_to_xml(questions, &std::collections::HashMap::new())
 }
 
 /// Converts a DOCX package to a Moodle XML question bank.
@@ -51,5 +51,5 @@ pub fn moodle_xml_for_test(questions: &[Question]) -> String {
 pub fn convert_docx<R: Read + Seek>(input: R) -> Result<String> {
     let document = docx::Document::read(input)?;
     let questions = parse_questions(document.paragraphs)?;
-    Ok(moodle::render_questions(&questions, &document.images))
+    Ok(moodle::questions_to_xml(&questions, &document.images))
 }
