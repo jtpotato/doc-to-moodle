@@ -8,24 +8,29 @@ supports formatted text and embedded JPEG/PNG images, including cropping.
 
 ## Requirements
 
-- Rust and Cargo (the project uses the Rust 2021 edition).
+- Rust and Cargo.
 - A DOCX file containing the supported authoring format.
 - Moodle access for importing the generated XML.
 
-The project has no runtime configuration file and does not need a running
-Moodle instance.
-
 ## Quick start
+Running the converter from the command line:
+```sh
+moodle-doc-converter input.docx output.xml
+```
+The parsed test gets printed to terminal. The output path is overwritten if it already exists. Errors are reported.
 
+Installing the converter as a Cargo binary:
+
+```sh
+cargo install --path .
+```
+***
+
+## Dev
 Convert a manuscript:
-
 ```sh
 cargo run --release -- input.docx output.xml
 ```
-
-The output path is overwritten if it already exists. Errors are reported with
-the operation that failed, such as opening the input, reading the DOCX
-package, converting it, or writing the XML.
 
 Build the project:
 
