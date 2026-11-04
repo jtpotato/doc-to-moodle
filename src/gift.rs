@@ -75,6 +75,8 @@ pub struct Answer {
     pub correct: bool,
     /// Explicit percentage for a correct answer, if supplied in the guide format.
     pub percentage: Option<f64>,
+    /// Correct dropdown value for a labeled dropdown row.
+    pub dropdown_value: Option<Vec<Inline>>,
 }
 
 /// A question type, either multi-choice or drop-down.
@@ -136,7 +138,24 @@ pub fn parse_questions(paragraphs: Vec<Paragraph>) -> Result<Vec<Question>> {
             continue;
         }
         if answers_started {
-            if let Some(answer) = parse_answer(&paragraph)? {
+            let is_dropdown_row = text.contains("->");
+            if question.answers.is_empty() {
+                question.question_type = if is_dropdown_row {
+                    QuestionType::DropDown
+                } else {
+                    QuestionType::MultiChoice
+                };
+            } else if is_dropdown_row != (question.question_type == QuestionType::DropDown) {
+                bail!(
+                    "question {} mixes dropdown and multiple-choice answer formats",
+                    question.name
+                );
+            }
+            if let Some(answer) = if is_dropdown_row {
+                parse_dropdown_answer(&paragraph)?
+            } else {
+                parse_answer(&paragraph)?
+            } {
                 question.answers.push(answer);
             }
             continue;
@@ -148,6 +167,50 @@ pub fn parse_questions(paragraphs: Vec<Paragraph>) -> Result<Vec<Question>> {
         bail!("no question markers found; add ::id:: markers");
     }
     Ok(questions)
+}
+
+/// Parses a dropdown row in `label -> value` form.
+fn parse_dropdown_answer(paragraph: &Paragraph) -> Result<Option<Answer>> {
+    let text = paragraph.plain_text();
+    let Some((label, value)) = text.split_once("->") else {
+        if text.trim().is_empty() {
+            return Ok(None);
+        }
+        bail!("dropdown answers must use `label -> value`: {text}");
+    };
+    let label = label.trim();
+    let value = value.trim();
+    if label.is_empty() || value.is_empty() {
+        bail!("dropdown answers must have a label and value: {text}");
+    }
+    let mut inlines = paragraph.inlines.clone();
+    truncate_inlines_at_text_offset(&mut inlines, text.find("->").unwrap_or(text.len()));
+    if let Some(Inline::Text { value: text, .. }) = inlines.last_mut() {
+        *text = text.trim_end().to_string();
+    }
+    Ok(Some(Answer {
+        inlines,
+        correct: true,
+        percentage: None,
+        dropdown_value: Some(vec![Inline::text(value, false, false)]),
+    }))
+}
+
+/// Keeps inline content before a byte offset in the paragraph's plain text.
+fn truncate_inlines_at_text_offset(inlines: &mut Vec<Inline>, offset: usize) {
+    let mut text_bytes = 0;
+    let mut keep_through = inlines.len();
+    for (index, inline) in inlines.iter_mut().enumerate() {
+        if let Inline::Text { value, .. } = inline {
+            if text_bytes + value.len() >= offset {
+                value.truncate(offset.saturating_sub(text_bytes));
+                keep_through = index + 1;
+                break;
+            }
+            text_bytes += value.len();
+        }
+    }
+    inlines.truncate(keep_through);
 }
 
 /// Validates a completed question and appends it to the output list.
@@ -212,6 +275,7 @@ fn parse_answer(paragraph: &Paragraph) -> Result<Option<Answer>> {
         inlines,
         correct,
         percentage: score.map(|score| score.percentage),
+        dropdown_value: None,
     }))
 }
 

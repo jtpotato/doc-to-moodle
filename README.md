@@ -3,7 +3,7 @@
 Small Rust program that converts a Microsoft Word `.docx` question manuscript
 into a Moodle question-bank XML file.
 
-The converter currently produces Moodle `multichoice` questions only. It
+The converter produces Moodle `multichoice` and dropdown (Cloze) questions. It
 supports formatted text and embedded JPEG/PNG images, including cropping.
 
 ## Requirements
@@ -62,7 +62,7 @@ same media filename share one `<file>` payload.
 
 ## Moodle output
 
-Every parsed question is emitted as:
+Multiple-choice questions are emitted as:
 
 ```xml
 <question type="multichoice">
@@ -96,6 +96,11 @@ The crate exposes the following useful entry points:
   readable diagnostic transcript.
 - `Inline`, `Paragraph`, `Answer`, and `Question`: the public intermediate
   model used to build or inspect questions in Rust code.
+
+Dropdown rows use `label -> correct value`; each row becomes an embedded
+Moodle dropdown field whose other choices are the correct values from the
+question's rows. The parser identifies dropdown questions from the `->`
+answer format; the marker remains the question name.
 
 The internal renderer is intentionally kept separate from the public API.
 `moodle_xml_for_test` exists only as a small test helper for exercising XML

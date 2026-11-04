@@ -25,6 +25,10 @@ pub fn questions_to_xml(questions: &[Question], images: &HashMap<String, Image>)
 /// Prompt image payloads are attached once per distinct filename, while both
 /// prompt and answer inline images refer to Moodle's plugin file area.
 fn render_question(output: &mut String, question: &Question, images: &HashMap<String, Image>) {
+    if question.question_type == crate::gift::QuestionType::DropDown {
+        render_dropdown_question(output, question, images);
+        return;
+    }
     let correct_count = question
         .answers
         .iter()
@@ -87,6 +91,78 @@ fn render_question(output: &mut String, question: &Question, images: &HashMap<St
         ));
     }
     output.push_str("  </question>\n");
+}
+
+/// Renders each labeled dropdown row as a Moodle embedded multichoice field.
+fn render_dropdown_question(
+    output: &mut String,
+    question: &Question,
+    images: &HashMap<String, Image>,
+) {
+    output.push_str("  <question type=\"cloze\">\n");
+    output.push_str(&format!(
+        "    <name><text>{}</text></name>\n",
+        xml_escape(&question.name)
+    ));
+    let choices: Vec<String> = question
+        .answers
+        .iter()
+        .filter_map(|answer| answer.dropdown_value.as_ref())
+        .flat_map(|value| {
+            value.iter().map(|inline| match inline {
+                Inline::Text { value, .. } => value.clone(),
+                Inline::Image(_) => String::new(),
+            })
+        })
+        .collect();
+    let rows = question
+        .answers
+        .iter()
+        .map(|answer| {
+            let correct = answer.dropdown_value.as_deref().unwrap_or_default();
+            let correct = render_inlines(correct, images);
+            let alternatives = choices
+                .iter()
+                .filter(|choice| html_escape(choice) != correct)
+                .map(|choice| html_escape(choice))
+                .collect::<Vec<_>>()
+                .join("~");
+            let choices = if alternatives.is_empty() {
+                format!("={correct}")
+            } else {
+                format!("{alternatives}~={correct}")
+            };
+            format!(
+                "{} {{1:MULTICHOICE_S:{choices}}}",
+                render_inlines(&answer.inlines, images),
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("<br/>");
+    let prompt = question
+        .prompt
+        .iter()
+        .map(|p| render_paragraph(p, images))
+        .collect::<Vec<_>>()
+        .join("<br/>");
+    let text = if prompt.is_empty() {
+        rows
+    } else {
+        format!("{prompt}<br/>{rows}")
+    };
+    output.push_str(&format!(
+        "    <questiontext format=\"html\"><text><![CDATA[{text}]]></text>"
+    ));
+    for filename in image_names(&question.prompt) {
+        if let Some(image) = images.get(&filename) {
+            output.push_str(&format!(
+                "<file name=\"{}\" path=\"/\" encoding=\"base64\">{}</file>",
+                xml_escape(&filename),
+                base64::engine::general_purpose::STANDARD.encode(&image.bytes)
+            ));
+        }
+    }
+    output.push_str("</questiontext>\n  </question>\n");
 }
 
 /// Renders a paragraph by delegating its ordered inline fragments.

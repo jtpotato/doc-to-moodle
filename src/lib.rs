@@ -15,12 +15,13 @@
 mod docx;
 mod gift;
 mod moodle;
+mod preview;
 mod text;
 
 use anyhow::Result;
 use std::io::{Read, Seek};
 
-pub use gift::{parse_questions, Answer, Inline, Paragraph, Question};
+pub use gift::{parse_questions, Answer, Inline, Paragraph, Question, QuestionType};
 pub use text::{render_file as render_moodle_text_file, render_xml as render_moodle_text};
 
 /// Renders questions without a DOCX image archive.
@@ -49,7 +50,17 @@ pub fn moodle_xml_for_test(questions: &[Question]) -> String {
 /// image data and assigns answer fractions. Any failure in ZIP/XML reading,
 /// image resolution, or question validation is returned with context.
 pub fn convert_docx<R: Read + Seek>(input: R) -> Result<String> {
+    convert_docx_with_preview(input, false).map(|(xml, _)| xml)
+}
+
+/// Converts a DOCX package and returns both Moodle XML and a readable question preview.
+pub fn convert_docx_with_preview<R: Read + Seek>(
+    input: R,
+    color: bool,
+) -> Result<(String, String)> {
     let document = docx::Document::read(input)?;
     let questions = parse_questions(document.paragraphs)?;
-    Ok(moodle::questions_to_xml(&questions, &document.images))
+    let preview = preview::render_questions(&questions, color);
+    let xml = moodle::questions_to_xml(&questions, &document.images);
+    Ok((xml, preview))
 }

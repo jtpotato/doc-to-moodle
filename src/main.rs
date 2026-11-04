@@ -1,6 +1,6 @@
 use anyhow::{bail, Context, Result};
-use moodle_doc_converter::{convert_docx, render_moodle_text_file};
-use std::{env, fs::File};
+use moodle_doc_converter::convert_docx_with_preview;
+use std::{env, fs::File, io::IsTerminal};
 
 /// Runs the CLI's conversion or transcript command based on positional arguments.
 ///
@@ -10,12 +10,15 @@ use std::{env, fs::File};
 /// context, and malformed argument counts return a usage error.
 fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
-    if args.len() != 2 {
+    if args.len() != 3 {
         bail!("usage: INPUT.docx OUTPUT.xml");
     }
 
     let input = File::open(&args[1]).with_context(|| format!("opening {}", args[1]))?;
-    let xml = convert_docx(input).context("converting DOCX to Moodle XML")?;
+    let color = std::io::stdout().is_terminal();
+    let (xml, preview) =
+        convert_docx_with_preview(input, color).context("converting DOCX to Moodle XML")?;
     std::fs::write(&args[2], xml).with_context(|| format!("writing {}", args[2]))?;
+    print!("{preview}");
     Ok(())
 }
