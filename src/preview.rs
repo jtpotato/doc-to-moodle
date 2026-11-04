@@ -1,84 +1,105 @@
-use crate::{Inline, Question, QuestionType};
+use crate::{Answer, Inline, Question, QuestionType};
 
 /// Formats parsed questions and their Moodle answer grades for terminal output.
 pub(crate) fn render_questions(questions: &[Question], color: bool) -> String {
-    let mut output = String::new();
-    for (index, question) in questions.iter().enumerate() {
-        let question_type = match question.question_type {
-            QuestionType::MultiChoice => "Multiple choice",
-            QuestionType::DropDown => "Dropdown",
-        };
-        output.push_str(&format!(
-            "\n{}. {}  ({question_type})\n",
-            index + 1,
-            question.name
-        ));
-        for paragraph in &question.prompt {
-            output.push_str("   ");
-            render_inlines(&paragraph.inlines, &mut output, color);
-            output.push('\n');
-        }
+    questions
+        .iter()
+        .enumerate()
+        .map(|(index, question)| render_question(index + 1, question, color))
+        .collect()
+}
 
-        if question.question_type == QuestionType::DropDown {
-            for answer in &question.answers {
-                output.push_str("   • ");
-                render_inlines(&answer.inlines, &mut output, color);
-                if let Some(value) = &answer.dropdown_value {
-                    output.push_str(" → ");
-                    render_inlines(value, &mut output, color);
-                }
-                if color {
-                    output.push_str("\x1b[32m");
-                }
-                output.push_str("  [correct, 100%]");
-                if color {
-                    output.push_str("\x1b[0m");
-                }
-                output.push('\n');
-            }
-            continue;
-        }
-
-        let explicit_total: f64 = question
+fn render_question(index: usize, question: &Question, color: bool) -> String {
+    let question_type = match question.question_type {
+        QuestionType::MultiChoice => "Multiple choice",
+        QuestionType::DropDown => "Dropdown",
+    };
+    let prompt = question
+        .prompt
+        .iter()
+        .map(|paragraph| format!("   {}", render_inlines(&paragraph.inlines, color)))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let answers = match question.question_type {
+        QuestionType::DropDown => question
             .answers
             .iter()
-            .filter_map(|answer| answer.percentage)
-            .sum();
-        let unscored_correct = question
-            .answers
-            .iter()
-            .filter(|answer| answer.correct && answer.percentage.is_none())
-            .count();
-        let distributed = if unscored_correct == 0 {
-            0.0
-        } else {
-            (100.0 - explicit_total) / unscored_correct as f64
-        };
-        for answer in &question.answers {
-            output.push_str(if answer.correct { "   ✓ " } else { "   • " });
-            render_inlines(&answer.inlines, &mut output, color);
-            if answer.correct {
-                let percentage = answer.percentage.unwrap_or(distributed);
-                if color {
-                    output.push_str("\x1b[32m");
-                }
-                output.push_str(&format!("  [{}%]", format_percentage(percentage)));
-                if color {
-                    output.push_str("\x1b[0m");
-                }
-            } else {
-                if color {
-                    output.push_str("\x1b[90m");
-                }
-                output.push_str("  [incorrect]");
-                if color {
-                    output.push_str("\x1b[0m");
-                }
-            }
-            output.push('\n');
-        }
+            .map(|answer| render_dropdown_answer(answer, color))
+            .collect::<Vec<_>>(),
+        QuestionType::MultiChoice => render_multiple_choice_answers(question, color),
     }
-    output
+    .join("\n");
+
+    format!(
+        "\n{index}. {}  ({question_type})\n{prompt}\n{answers}\n",
+        question.name
+    )
+}
+
+fn render_dropdown_answer(answer: &Answer, color: bool) -> String {
+    let label = answer
+        .dropdown_value
+        .as_deref()
+        .map(|value| format!(" → {}", render_inlines(value, color)))
+        .unwrap_or_default();
+
+    format!(
+        "   • {}{label}{}",
+        render_inlines(&answer.inlines, color),
+        styled("  [correct, 100%]", "\x1b[32m", color)
+    )
+}
+
+fn render_multiple_choice_answers(question: &Question, color: bool) -> Vec<String> {
+    let explicit_total = question
+        .answers
+        .iter()
+        .filter_map(|answer| answer.percentage)
+        .sum::<f64>();
+    let unscored_correct = question
+        .answers
+        .iter()
+        .filter(|answer| answer.correct && answer.percentage.is_none())
+        .count();
+    let distributed = match unscored_correct {
+        0 => 0.0,
+        count => (100.0 - explicit_total) / count as f64,
+    };
+
+    question
+        .answers
+        .iter()
+        .map(|answer| render_multiple_choice_answer(answer, distributed, color))
+        .collect()
+}
+
+fn render_multiple_choice_answer(answer: &Answer, distributed: f64, color: bool) -> String {
+    let (marker, grade) = if answer.correct {
+        let percentage = answer.percentage.unwrap_or(distributed);
+        (
+            "✓",
+            styled(
+                &format!("  [{}%]", format_percentage(percentage)),
+                "\x1b[32m",
+                color,
+            ),
+        )
+    } else {
+        ("•", styled("  [incorrect]", "\x1b[90m", color))
+    };
+
+    format!(
+        "   {marker} {}{grade}",
+        render_inlines(&answer.inlines, color)
+    )
+}
+
+fn styled(value: &str, color_code: &str, color: bool) -> String {
+    if color {
+        format!("{color_code}{value}\x1b[0m")
+    } else {
+        value.to_owned()
+    }
 }
 
 fn format_percentage(value: f64) -> String {
@@ -88,26 +109,25 @@ fn format_percentage(value: f64) -> String {
         .to_string()
 }
 
-fn render_inlines(inlines: &[Inline], output: &mut String, color: bool) {
-    for inline in inlines {
-        match inline {
+fn render_inlines(inlines: &[Inline], color: bool) -> String {
+    inlines
+        .iter()
+        .map(|inline| match inline {
             Inline::Text {
                 value,
                 bold,
                 italic,
             } => {
-                if color && *bold {
-                    output.push_str("\x1b[1m");
-                }
-                if color && *italic {
-                    output.push_str("\x1b[3m");
-                }
-                output.push_str(value);
-                if color && (*bold || *italic) {
-                    output.push_str("\x1b[0m");
-                }
+                let bold_start = if color && *bold { "\x1b[1m" } else { "" };
+                let italic_start = if color && *italic { "\x1b[3m" } else { "" };
+                let reset = if color && (*bold || *italic) {
+                    "\x1b[0m"
+                } else {
+                    ""
+                };
+                format!("{bold_start}{italic_start}{value}{reset}")
             }
-            Inline::Image(_) => output.push_str("[image]"),
-        }
-    }
+            Inline::Image(_) => "[image]".to_owned(),
+        })
+        .collect()
 }
