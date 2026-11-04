@@ -75,8 +75,8 @@ pub struct Answer {
     pub correct: bool,
     /// Explicit percentage for a correct answer, if supplied in the guide format.
     pub percentage: Option<f64>,
-    /// Correct dropdown value for a labeled dropdown row.
-    pub dropdown_value: Option<Vec<Inline>>,
+    /// Matching value for a labeled matching row.
+    pub matching_value: Option<Vec<Inline>>,
 }
 
 /// A question type, either multi-choice or drop-down.
@@ -86,7 +86,7 @@ pub enum QuestionType {
     /// A multiple-choice question with radio buttons or checkboxes.
     MultiChoice,
     /// A drop-down question with a single correct choice.
-    DropDown,
+    Matching,
 }
 
 /// A parsed multiple-choice question before Moodle XML rendering.
@@ -138,21 +138,21 @@ pub fn parse_questions(paragraphs: Vec<Paragraph>) -> Result<Vec<Question>> {
             continue;
         }
         if answers_started {
-            let is_dropdown_row = text.contains("->");
+            let is_matching_row = text.contains("->");
             if question.answers.is_empty() {
-                question.question_type = if is_dropdown_row {
-                    QuestionType::DropDown
+                question.question_type = if is_matching_row {
+                    QuestionType::Matching
                 } else {
                     QuestionType::MultiChoice
                 };
-            } else if is_dropdown_row != (question.question_type == QuestionType::DropDown) {
+            } else if is_matching_row != (question.question_type == QuestionType::Matching) {
                 bail!(
-                    "question {} mixes dropdown and multiple-choice answer formats",
+                    "question {} mixes matching and multiple-choice answer formats",
                     question.name
                 );
             }
-            if let Some(answer) = if is_dropdown_row {
-                parse_dropdown_answer(&paragraph)?
+            if let Some(answer) = if is_matching_row {
+                parse_matching_answer(&paragraph)?
             } else {
                 parse_answer(&paragraph)?
             } {
@@ -169,19 +169,19 @@ pub fn parse_questions(paragraphs: Vec<Paragraph>) -> Result<Vec<Question>> {
     Ok(questions)
 }
 
-/// Parses a dropdown row in `label -> value` form.
-fn parse_dropdown_answer(paragraph: &Paragraph) -> Result<Option<Answer>> {
+/// Parses a matching row in `label -> value` form.
+fn parse_matching_answer(paragraph: &Paragraph) -> Result<Option<Answer>> {
     let text = paragraph.plain_text();
     let Some((label, value)) = text.split_once("->") else {
         if text.trim().is_empty() {
             return Ok(None);
         }
-        bail!("dropdown answers must use `label -> value`: {text}");
+        bail!("matching answers must use `label -> value`: {text}");
     };
     let label = label.trim();
     let value = value.trim();
     if label.is_empty() || value.is_empty() {
-        bail!("dropdown answers must have a label and value: {text}");
+        bail!("matching answers must have a label and value: {text}");
     }
     let mut inlines = paragraph.inlines.clone();
     truncate_inlines_at_text_offset(&mut inlines, text.find("->").unwrap_or(text.len()));
@@ -192,7 +192,7 @@ fn parse_dropdown_answer(paragraph: &Paragraph) -> Result<Option<Answer>> {
         inlines,
         correct: true,
         percentage: None,
-        dropdown_value: Some(vec![Inline::text(value, false, false)]),
+        matching_value: Some(vec![Inline::text(value, false, false)]),
     }))
 }
 
@@ -275,7 +275,7 @@ fn parse_answer(paragraph: &Paragraph) -> Result<Option<Answer>> {
         inlines,
         correct,
         percentage: score.map(|score| score.percentage),
-        dropdown_value: None,
+        matching_value: None,
     }))
 }
 

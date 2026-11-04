@@ -6,7 +6,7 @@
 ::2027\_D3\_Q1a::  
 ::2027\_D3\_Q1b::
 
-*Drop down:*  
+*Matching:*
 ::2027\_dropdown::  
 // An image of rocks A, B, C. Use // in front of any line that shouldn’t go through the parser.  
 Rank the following rocks in the correct order:

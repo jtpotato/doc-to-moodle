@@ -12,7 +12,7 @@ pub(crate) fn render_questions(questions: &[Question], color: bool) -> String {
 fn render_question(index: usize, question: &Question, color: bool) -> String {
     let question_type = match question.question_type {
         QuestionType::MultiChoice => "Multiple choice",
-        QuestionType::DropDown => "Dropdown",
+        QuestionType::Matching => "Matching",
     };
     let prompt = question
         .prompt
@@ -21,11 +21,7 @@ fn render_question(index: usize, question: &Question, color: bool) -> String {
         .collect::<Vec<_>>()
         .join("\n");
     let answers = match question.question_type {
-        QuestionType::DropDown => question
-            .answers
-            .iter()
-            .map(|answer| render_dropdown_answer(answer, color))
-            .collect::<Vec<_>>(),
+        QuestionType::Matching => render_matching_answers(question, color),
         QuestionType::MultiChoice => render_multiple_choice_answers(question, color),
     }
     .join("\n");
@@ -36,9 +32,18 @@ fn render_question(index: usize, question: &Question, color: bool) -> String {
     )
 }
 
-fn render_dropdown_answer(answer: &Answer, color: bool) -> String {
+fn render_matching_answers(question: &Question, color: bool) -> Vec<String> {
+    let points_per_pair = 100.0 / question.answers.len() as f64;
+    question
+        .answers
+        .iter()
+        .map(|answer| render_matching_answer(answer, points_per_pair, color))
+        .collect()
+}
+
+fn render_matching_answer(answer: &Answer, points_per_pair: f64, color: bool) -> String {
     let label = answer
-        .dropdown_value
+        .matching_value
         .as_deref()
         .map(|value| format!(" → {}", render_inlines(value, color)))
         .unwrap_or_default();
@@ -46,7 +51,11 @@ fn render_dropdown_answer(answer: &Answer, color: bool) -> String {
     format!(
         "   • {}{label}{}",
         render_inlines(&answer.inlines, color),
-        styled("  [correct, 100%]", "\x1b[32m", color)
+        styled(
+            &format!("  [correct, {}%]", format_percentage(points_per_pair)),
+            "\x1b[32m",
+            color,
+        )
     )
 }
 
