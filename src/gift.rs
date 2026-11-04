@@ -66,13 +66,15 @@ impl Paragraph {
     }
 }
 
-/// An answer and whether it was marked with the `(*)` correctness suffix.
+/// An answer, whether it is correct, and its optional explicit score.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Answer {
     /// Styled text and images that make up the answer body.
     pub inlines: Vec<Inline>,
     /// Whether the author marked this answer with the `(*)` suffix.
     pub correct: bool,
+    /// Explicit percentage for a correct answer, if supplied in the guide format.
+    pub percentage: Option<f64>,
 }
 
 /// A question type, either multi-choice or drop-down.
@@ -134,7 +136,7 @@ pub fn parse_questions(paragraphs: Vec<Paragraph>) -> Result<Vec<Question>> {
             continue;
         }
         if answers_started {
-            if let Some(answer) = parse_answer(&paragraph) {
+            if let Some(answer) = parse_answer(&paragraph)? {
                 question.answers.push(answer);
             }
             continue;
@@ -159,6 +161,17 @@ fn finish_question(questions: &mut Vec<Question>, question: Option<Question>) ->
         if question.answers.is_empty() {
             bail!("question {} has no answers", question.name);
         }
+        let explicit_total: f64 = question
+            .answers
+            .iter()
+            .filter_map(|answer| answer.percentage)
+            .sum();
+        if explicit_total > 100.0 {
+            bail!(
+                "question {} has answer percentages totaling more than 100",
+                question.name
+            );
+        }
         questions.push(question);
     }
     Ok(())
@@ -177,14 +190,66 @@ fn question_marker(text: &str) -> Option<String> {
 /// A trailing `(*)` marks the answer correct and is removed from its final
 /// text inline. The remaining inline fragments, including styles and images,
 /// are preserved in source order.
-fn parse_answer(paragraph: &Paragraph) -> Option<Answer> {
-    let text = paragraph.plain_text();
-    let correct = text.trim().ends_with("(*)");
+fn parse_answer(paragraph: &Paragraph) -> Result<Option<Answer>> {
+    let mut answer_text = paragraph.plain_text().trim_end().to_string();
+    let score = find_score_if_exists(&answer_text)?;
+    if let Some(score) = &score {
+        answer_text.truncate(score.start);
+    }
+    let correct = is_correct(&answer_text);
+    if score.is_some() && !correct {
+        bail!("an answer percentage requires the answer to be marked (*)");
+    }
+
     let mut inlines = paragraph.inlines.clone();
+    if let Some(score) = &score {
+        trim_text_suffix(&mut inlines, &score.suffix);
+    }
     if correct {
         trim_text_suffix(&mut inlines, "(*)");
     }
-    (!inlines.is_empty()).then_some(Answer { inlines, correct })
+    Ok((!inlines.is_empty()).then_some(Answer {
+        inlines,
+        correct,
+        percentage: score.map(|score| score.percentage),
+    }))
+}
+
+struct AnswerScore {
+    start: usize,
+    /// The exact trailing score marker, including its leading space (for example, ` (75%)`).
+    /// The parser removes this from the answer text before exporting it.
+    suffix: String,
+    percentage: f64,
+}
+
+/// Finds and validates a trailing `(percentage%)` score marker.
+fn find_score_if_exists(answer_text: &str) -> Result<Option<AnswerScore>> {
+    let Some(start) = answer_text.rfind(" (") else {
+        return Ok(None);
+    };
+    let Some(number) = answer_text[start + 2..].strip_suffix(')') else {
+        return Ok(None);
+    };
+    let Some(number) = number.strip_suffix('%') else {
+        return Ok(None);
+    };
+    let Ok(percentage) = number.parse::<f64>() else {
+        return Ok(None);
+    };
+    if !(0.0..=100.0).contains(&percentage) {
+        bail!("answer percentage must be between 0 and 100: {percentage}");
+    }
+    Ok(Some(AnswerScore {
+        start,
+        suffix: answer_text[start..].to_string(),
+        percentage,
+    }))
+}
+
+/// Reports whether an answer ends with the guide's correctness marker.
+fn is_correct(answer_text: &str) -> bool {
+    answer_text.trim_end().ends_with("(*)")
 }
 
 /// Removes the last occurrence of a marker from the final text inline.

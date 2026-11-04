@@ -20,9 +20,8 @@ pub fn questions_to_xml(questions: &[Question], images: &HashMap<String, Image>)
 
 /// Appends one multichoice question, including prompt media and graded answers.
 ///
-/// The number of correct answers determines `<single>` and the positive mark:
-/// exactly one correct answer uses single-answer mode; multiple correct
-/// answers divide 100 points evenly; no correct answer yields zero credit.
+/// Correct answers use their explicit percentages where supplied. Unscored
+/// correct answers divide the remaining percentage evenly.
 /// Prompt image payloads are attached once per distinct filename, while both
 /// prompt and answer inline images refer to Moodle's plugin file area.
 fn render_question(output: &mut String, question: &Question, images: &HashMap<String, Image>) {
@@ -60,19 +59,30 @@ fn render_question(output: &mut String, question: &Question, images: &HashMap<St
         if correct_count == 1 { "true" } else { "false" }
     ));
     output.push_str("    <shuffleanswers>true</shuffleanswers>\n");
-    let fraction = if correct_count == 0 {
+    let explicitly_scored: f64 = question
+        .answers
+        .iter()
+        .filter_map(|answer| answer.percentage)
+        .sum();
+    let unscored_correct = question
+        .answers
+        .iter()
+        .filter(|answer| answer.correct && answer.percentage.is_none())
+        .count();
+    let distributed_percentage = if unscored_correct == 0 {
         0.0
     } else {
-        100.0 / correct_count as f64
+        (100.0 - explicitly_scored) / unscored_correct as f64
     };
     for answer in &question.answers {
+        let fraction = if !answer.correct {
+            0.0
+        } else {
+            answer.percentage.unwrap_or(distributed_percentage)
+        };
         output.push_str(&format!(
             "    <answer fraction=\"{}\"><text><![CDATA[{}]]></text></answer>\n",
-            if answer.correct {
-                format_fraction(fraction)
-            } else {
-                "0".into()
-            },
+            format_fraction(fraction),
             render_inlines(&answer.inlines, images)
         ));
     }

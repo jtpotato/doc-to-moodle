@@ -25,7 +25,7 @@ Jeff (\*)
 Geoff  
 Greg
 
-*Multiple choice (multiple answers): (can have different scores for each answer. or don't include a score and let the program distribute the remaining marks evenly)*  
+*Multiple choice (multiple answers): add a percentage after `(*)` to set an answer's score. Unscored correct answers share the percentage remaining out of 100.*
 ::2027\_multichoice\_b::  
 Who are the Program Directors?
 
@@ -33,3 +33,8 @@ Who are the Program Directors?
 Jeff  
 Greg (\*) (75%)  
 Leslie (\*)
+
+For example, `Greg (*) (75%)` receives 75% credit. If another correct answer
+has no percentage, it receives the remaining 25%. A percentage can only be
+used on an answer marked `(*)`, and the explicit percentages for a question
+must total no more than 100%.
